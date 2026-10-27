@@ -1,0 +1,97 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: UniqueJar <mihaifica34@gmail.com>
+Date: Tue, 27 Oct 2026 23:02:02 +0000
+Subject: [PATCH] UniqueJar: Cache synched health in a field for isAlive()
+
+ActivationRange.checkIfActive() calls isAlive() for every ticking entity
+every tick. isAlive() read health through SynchedEntityData
+(entity -> itemsById[] -> DataItem -> boxed Float): ~3.5% of server-thread
+CPU samples in the baseline workload.
+
+LivingEntity now mirrors DATA_HEALTH_ID in a primitive float, updated at the
+only three places that write DATA_HEALTH_ID. ServerPlayer keeps the original
+formula because getHealth() returns Bukkit's unscaled health there.
+With -ea, isAlive() asserts the mirror equals the synched value.
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+diff --git a/net/minecraft/server/level/ServerPlayer.java b/net/minecraft/server/level/ServerPlayer.java
+index 4030776c3d12f8e797720180e141322b5d2cc548..3a58a3576659901c31eb1405c82391fa10f87391 100644
+--- a/net/minecraft/server/level/ServerPlayer.java
++++ b/net/minecraft/server/level/ServerPlayer.java
+@@ -1183,6 +1183,14 @@ public class ServerPlayer extends Player implements ca.spottedleaf.moonrise.patc
+         }
+     }
+     // Paper end - Expand PlayerDeathEvent API
++
++    // UniqueJar start - Cache synched health in a field for isAlive()
++    @Override
++    public boolean isAlive() {
++        return !this.dead && !this.isRemoved() && this.getHealth() > 0.0F; // getHealth() reads Bukkit's unscaled health, not the synched field
++    }
++    // UniqueJar end - Cache synched health in a field for isAlive()
++
+     @Override
+     public void die(final DamageSource source) {
+         // this.gameEvent(GameEvent.ENTITY_DIE); // Paper - move below event cancellation check
+diff --git a/net/minecraft/world/entity/LivingEntity.java b/net/minecraft/world/entity/LivingEntity.java
+index 549bd2811ee8a0b46e1aae4409bc3b9d38ed90b1..2560895d85badd35bb900040cae4bd1034c9a902 100644
+--- a/net/minecraft/world/entity/LivingEntity.java
++++ b/net/minecraft/world/entity/LivingEntity.java
+@@ -190,6 +190,11 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+     public static final int LIVING_ENTITY_FLAG_SPIN_ATTACK = 4;
+     protected static final EntityDataAccessor<Byte> DATA_LIVING_ENTITY_FLAGS = SynchedEntityData.defineId(LivingEntity.class, EntityDataSerializers.BYTE);
+     public static final EntityDataAccessor<Float> DATA_HEALTH_ID = SynchedEntityData.defineId(LivingEntity.class, EntityDataSerializers.FLOAT);
++    // UniqueJar start - Cache synched health in a field for isAlive()
++    // Mirror of entityData.get(DATA_HEALTH_ID). Every write to DATA_HEALTH_ID goes through leaf$setHealthData so the two cannot diverge;
++    // the initial value matches the default passed to entityData.define(DATA_HEALTH_ID, 1.0F).
++    private float uniquejar$health = 1.0F;
++    // UniqueJar end - Cache synched health in a field for isAlive()
+     private static final EntityDataAccessor<List<ParticleOptions>> DATA_EFFECT_PARTICLES = SynchedEntityData.defineId(
+         LivingEntity.class, EntityDataSerializers.PARTICLES
+     );
+@@ -318,7 +323,7 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+         this.initAttributes(); // Purpur - Configurable entity base attributes
+         this.craftAttributes = new org.bukkit.craftbukkit.attribute.CraftAttributeMap(this.attributes); // CraftBukkit
+         // CraftBukkit - this.setHealth(this.getMaxHealth()) inlined and simplified to skip the instanceof check for Player, as getBukkitEntity() is not initialized in constructor
+-        this.entityData.set(LivingEntity.DATA_HEALTH_ID, this.getMaxHealth());
++        this.uniquejar$setHealthData(this.getMaxHealth()); // UniqueJar - Cache synched health in a field for isAlive()
+         this.equipment = this.createEquipment();
+         this.blocksBuilding = true;
+         this.reapplyPosition();
+@@ -1464,13 +1469,20 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+             }
+ 
+             //player.updateScaledHealth(false); // Leaf - Fix sprint glitch - commented out
+-            this.entityData.set(LivingEntity.DATA_HEALTH_ID, player.getScaledHealth()); // Leaf - Fix sprint glitch
++            this.uniquejar$setHealthData(player.getScaledHealth()); // Leaf - Fix sprint glitch // UniqueJar - Cache synched health in a field for isAlive()
+             return;
+         }
+         // CraftBukkit end
+-        this.entityData.set(DATA_HEALTH_ID, bypassCap ? this.leaf$sanitizeHealth(health) : Mth.clamp(health, 0.0F, this.getMaxHealth())); // Leaf - Fix MC-17876
++        this.uniquejar$setHealthData(bypassCap ? this.leaf$sanitizeHealth(health) : Mth.clamp(health, 0.0F, this.getMaxHealth())); // Leaf - Fix MC-17876 // UniqueJar - Cache synched health in a field for isAlive()
+     }
+ 
++    // UniqueJar start - Cache synched health in a field for isAlive()
++    private void uniquejar$setHealthData(final float health) {
++        this.entityData.set(DATA_HEALTH_ID, health);
++        this.uniquejar$health = health;
++    }
++    // UniqueJar end - Cache synched health in a field for isAlive()
++
+     // Leaf start - Fix MC-17876
+     private float leaf$sanitizeHealth(float health) {
+         if (health < 0.0F || !Float.isFinite(health)) {
+@@ -2299,7 +2311,11 @@ public abstract class LivingEntity extends Entity implements Attackable, Waypoin
+ 
+     @Override
+     public boolean isAlive() {
+-        return !this.dead && !this.isRemoved() && this.getHealth() > 0.0F; // Paper - Check this.dead // Leaf - Optimise getEntities - check the cheapest first
++        // UniqueJar start - Cache synched health in a field for isAlive()
++        // Players report Bukkit's unscaled health through getHealth(), so ServerPlayer overrides this method; for everything else the field is the synched value.
++        assert this instanceof ServerPlayer || this.uniquejar$health == this.entityData.get(DATA_HEALTH_ID) : "health cache out of sync for " + this; // only evaluated with -ea
++        return !this.dead && !this.isRemoved() && this.uniquejar$health > 0.0F; // Paper - Check this.dead // Leaf - Optimise getEntities - check the cheapest first
++        // UniqueJar end - Cache synched health in a field for isAlive()
+     }
+ 
+     public boolean isLookingAtMe(
