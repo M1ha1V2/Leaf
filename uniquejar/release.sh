@@ -23,6 +23,8 @@ for i in $(seq 1 240); do grep -q "Done (" $T/console.log 2>/dev/null && break; 
 grep -q "Done (" $T/console.log || { echo "ERROR: server did not reach Done"; tail -20 $T/console.log; kill $SP 2>/dev/null; exit 1; }
 echo version >&9; sleep 3; echo stop >&9; wait $SP || true
 grep -E "This server is running" $T/console.log
+grep -q "This server is running UniqueJar" $T/console.log || { echo "ERROR: brand is not UniqueJar"; exit 1; }
+if grep -qiE "bstats|leafmc\.one|Winds-Studio" $T/console.log; then echo "ERROR: unexpected outbound reference to another project in the log"; grep -iE "bstats|leafmc|Winds-Studio" $T/console.log | head -3; exit 1; fi
 if grep -qE "AssertionError|Exception ticking" $T/console.log; then echo "ERROR: assertion/tick exception in smoke test"; exit 1; fi
 grep -q "All dimensions are saved" $T/console.log || { echo "ERROR: unclean shutdown"; exit 1; }
 sha256sum "$DEST" | tee "$DEST.sha256"
