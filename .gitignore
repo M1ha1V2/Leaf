@@ -30,3 +30,5 @@ paper-api
 paper-server
 
 .codegraph
+dist/
+build-release.log
