@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: UniqueJar <mihaifica34@gmail.com>
+Date: Wed, 28 Oct 2026 01:03:57 +0000
+Subject: [PATCH] UniqueJar: Rebrand crash report notice
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+
+diff --git a/net/minecraft/CrashReport.java b/net/minecraft/CrashReport.java
+index c20c33c86c7175b01a17b5645aea52fd0ef0a95f..68ccc63d64e6ccf77d1a492c075626341239367a 100644
+--- a/net/minecraft/CrashReport.java
++++ b/net/minecraft/CrashReport.java
+@@ -23,7 +23,7 @@ import org.slf4j.Logger;
+ public class CrashReport {
+     private static final Logger LOGGER = LogUtils.getLogger();
+     private static final DateTimeFormatter DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT);
+-    private static final List<String> EXTRA_INFO = List.of("", "DO NOT REPORT THIS TO PAPER! REPORT TO LEAF INSTEAD!", ""); // Leaf - Rebrand
++    private static final List<String> EXTRA_INFO = List.of("", "DO NOT REPORT THIS TO PAPER OR LEAF! REPORT TO THE UNIQUEJAR MAINTAINERS INSTEAD!", ""); // Leaf - Rebrand // UniqueJar - Rebrand
+     private final String title;
+     private final Throwable exception;
+     private final List<CrashReportCategory> details = Lists.newArrayList();
