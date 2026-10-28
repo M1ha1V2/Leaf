@@ -10,7 +10,8 @@ MC=$(sed -n 's/^mcVersion=//p' gradle.properties)
 REV=$(git rev-parse HEAD)
 echo "== applying patches + building (BUILD_NUMBER=$N, MC $MC, rev ${REV:0:8})"
 export BUILD_NUMBER=$N
-./gradlew --console=plain applyAllPatches createPaperclipJar > build-release.log 2>&1 || { tail -30 build-release.log; exit 1; }
+# Two separate invocations, as documented in Leaf's README (one invocation trips Gradle's implicit-dependency validation).
+{ ./gradlew --console=plain applyAllPatches && ./gradlew --console=plain createPaperclipJar; } > build-release.log 2>&1 || { tail -30 build-release.log; exit 1; }
 JAR=$(ls leaf-server/build/libs/*paperclip*"build.$N"*.jar 2>/dev/null | head -1)
 [ -n "$JAR" ] || { echo "ERROR: paperclip jar for build $N not found"; ls leaf-server/build/libs; exit 1; }
 OUT=dist; mkdir -p $OUT; DEST=$OUT/uniquejar-$MC-b$N.jar; cp "$JAR" "$DEST"
